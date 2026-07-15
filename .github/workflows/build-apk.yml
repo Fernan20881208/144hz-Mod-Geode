@@ -8,6 +8,12 @@ on:
     paths:
       - "shizuku-app/**"
       - ".github/workflows/build-apk.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "shizuku-app/**"
+      - ".github/workflows/build-apk.yml"
 
 permissions:
   contents: read
