@@ -1,0 +1,2 @@
+-keep class com.zaid.geode144shizuku.Geode144UserService { *; }
+-keep class com.zaid.geode144shizuku.IGeode144Service { *; }
