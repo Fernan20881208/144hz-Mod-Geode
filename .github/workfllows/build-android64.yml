@@ -1,0 +1,29 @@
+name: Build Android64
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "**"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compilar mod de Geode
+        id: build
+        uses: geode-sdk/build-geode-mod@main
+        with:
+          sdk: v5.8.2
+          target: Android64
+          build-config: Release
+
+      - name: Subir archivo .geode
+        uses: actions/upload-artifact@v4
+        with:
+          name: force-144hz-android64
+          path: ${{ steps.build.outputs.build-output }}
+          
