@@ -1,4 +1,4 @@
-name: Build Geode Launcher 144Hz
+name: Build Geode Launcher 144Hz v2
 
 on:
   workflow_dispatch:
@@ -14,18 +14,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-
-      - name: Preparar Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Instalar herramientas Android
-        run: |
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
-          sdkmanager \
-            "platforms;android-36" \
-            "build-tools;36.0.0" \
-            "ndk;29.0.14206865" \
-            "cmake;3.22.1"
 
       - name: Clonar Geode Android Launcher
         run: |
@@ -256,6 +244,191 @@ jobs:
 
           new_focus = lines(
               "    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {",
+              "        super.onWindowFocusChanged(hasWindowFocus)",
+              "        mHasWindowFocus = hasWindowFocus",
+              "        if (hasWindowFocus && !mIsOnPause) {",
+              "            resumeGame()",
+              "        }",
+              "",
+              "        if (hasWindowFocus && Build.VERSION.SDK_INT >=",
+              "            Build.VERSION_CODES.R",
+              "        ) {",
+              "            mGLSurfaceView?.post {",
+              "                mGLSurfaceView?.updateRefreshRate()",
+              "            }",
+              "        }",
+              "",
+              "        hideSystemUi()",
+              "    }",
+          )
+
+          if old_focus_single in activity_text:
+              activity_text = activity_text.replace(
+                  old_focus_single,
+                  new_focus,
+                  1,
+              )
+          elif old_focus in activity_text:
+              activity_text = activity_text.replace(
+                  old_focus,
+                  new_focus,
+                  1,
+              )
+          else:
+              raise RuntimeError(
+                  "No se encontró onWindowFocusChanged()"
+              )
+
+          old_resume = lines(
+              "    override fun onResume() {",
+              "        super.onResume()",
+              "        mIsOnPause = false",
+              "        BaseRobTopActivity.isPaused = false",
+              "        if (mHasWindowFocus && !this.mIsRunning) {",
+              "            resumeGame()",
+              "        }",
+              "    }",
+          )
+
+          new_resume = lines(
+              "    override fun onResume() {",
+              "        super.onResume()",
+              "        mIsOnPause = false",
+              "        BaseRobTopActivity.isPaused = false",
+              "        if (mHasWindowFocus && !this.mIsRunning) {",
+              "            resumeGame()",
+              "        }",
+              "",
+              "        if (Build.VERSION.SDK_INT >=",
+              "            Build.VERSION_CODES.R",
+              "        ) {",
+              "            // Reaplicar después de que el servicio OEM",
+              "            // intente establecer su política por UID.",
+              "            mGLSurfaceView?.post {",
+              "                mGLSurfaceView?.updateRefreshRate()",
+              "            }",
+              "            mGLSurfaceView?.postDelayed(",
+              "                { mGLSurfaceView?.updateRefreshRate() },",
+              "                500L,",
+              "            )",
+              "            mGLSurfaceView?.postDelayed(",
+              "                { mGLSurfaceView?.updateRefreshRate() },",
+              "                1500L,",
+              "            )",
+              "        }",
+              "    }",
+          )
+
+          activity_text = replace_once(
+              activity_text,
+              old_resume,
+              new_resume,
+              "onResume()",
+          )
+          write(activity_file, activity_text)
+
+          # ---------------------------------------------------------------
+          # 4) Asegurar el linker correcto para objetos Android ARM.
+          # ---------------------------------------------------------------
+          cmake_file = root / "app/src/main/cpp/CMakeLists.txt"
+          cmake_text = read(cmake_file)
+
+          # Esta biblioteca es pequeña. Desactivar IPO evita que LTO
+          # introduzca herramientas del host durante el enlace cruzado.
+          cmake_text = cmake_text.replace(
+              "INTERPROCEDURAL_OPTIMIZATION ON",
+              "INTERPROCEDURAL_OPTIMIZATION OFF",
+          )
+
+          # Obligar a Clang a usar LLVM lld, compatible con AArch64/ARM.
+          if "target_link_options(launcherfix" not in cmake_text:
+              cmake_text += lines(
+                  "",
+                  "# Force LLVM lld for Android cross-compilation.",
+                  'target_link_options(launcherfix PRIVATE "-fuse-ld=lld")',
+                  "",
+              )
+
+          write(cmake_file, cmake_text)
+
+          # ---------------------------------------------------------------
+          # 5) Distinguir claramente esta compilación.
+          # ---------------------------------------------------------------
+          gradle_file = root / "app/build.gradle.kts"
+          gradle_text = read(gradle_file)
+
+          gradle_text, version_name_count = re.subn(
+              r'versionName\s*=\s*"[^"]+"',
+              'versionName = "1.8.0-144hz"',
+              gradle_text,
+              count=1,
+          )
+          gradle_text, version_code_count = re.subn(
+              r"versionCode\s*=\s*\d+",
+              "versionCode = 290144",
+              gradle_text,
+              count=1,
+          )
+
+          if version_name_count != 1 or version_code_count != 1:
+              raise RuntimeError(
+                  "No se pudo modificar versionName/versionCode"
+              )
+          write(gradle_file, gradle_text)
+
+          print("Parche Force 144 Hz aplicado correctamente.")
+          PY
+
+      - name: Instalar clave fija de prueba
+        env:
+          DEBUG_KEYSTORE_B64: "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"
+        run: |
+          mkdir -p "$HOME/.android"
+          printf '%s' "$DEBUG_KEYSTORE_B64" | base64 --decode \
+            > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+          keytool -list \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Compilar APK estándar
+        working-directory: launcher
+        shell: bash
+        run: |
+          # Evitar que variables del host sustituyan al toolchain del NDK.
+          unset CC CXX LD AR AS NM RANLIB
+
+          chmod +x gradlew
+
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          ./gradlew --version
+
+          # Mismo task usado por el workflow oficial de Geode.
+          ./gradlew \
+            --no-daemon \
+            --stacktrace \
+            --info \
+            app:assembleStandardDebug
+
+      - name: Mostrar archivos generados
+        run: |
+          find launcher/app/build/outputs/apk/standard/debug \
+            -type f -name '*.apk' \
+            -print -exec sha256sum {} \;
+
+      - name: Subir APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Geode-Launcher-144Hz-v2
+          path: launcher/app/build/outputs/apk/standard/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
+,
               "        super.onWindowFocusChanged(hasWindowFocus)",
               "        mHasWindowFocus = hasWindowFocus",
               "        if (hasWindowFocus && !mIsOnPause) {",
