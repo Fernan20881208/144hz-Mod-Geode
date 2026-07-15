@@ -1,0 +1,46 @@
+{
+  "geode": "5.8.2",
+  "gd": {
+    "android": "2.2081"
+  },
+  "id": "zaid.force-144hz",
+  "name": "Force 144 Hz",
+  "version": "v0.1.0",
+  "developer": "Zaid",
+  "description": "Requests a high-refresh display mode from Android for Geometry Dash.",
+  "settings": {
+    "target-hz": {
+      "type": "int",
+      "name": "Frecuencia objetivo",
+      "description": "Frecuencia que se solicitará a Android. El sistema puede ignorarla.",
+      "default": 144,
+      "min": 60,
+      "max": 240,
+      "control": {
+        "slider": true,
+        "slider-step": 1,
+        "input": true,
+        "arrows": true,
+        "arrow-step": 1,
+        "big-arrows": true,
+        "big-arrow-step": 10
+      }
+    },
+    "exact-mode": {
+      "type": "bool",
+      "name": "Fijar modeId exacto",
+      "description": "Si Android expone un modo cercano a la frecuencia objetivo, solicita ese modo de pantalla exacto.",
+      "default": true
+    },
+    "show-result": {
+      "type": "bool",
+      "name": "Mostrar diagnóstico",
+      "description": "Muestra una ventana una vez al abrir el menú principal.",
+      "default": true
+    }
+  },
+  "tags": [
+    "performance",
+    "utility"
+  ]
+}
