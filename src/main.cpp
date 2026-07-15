@@ -513,11 +513,11 @@ namespace {
 }
 
 $on_mod(Loaded) {
-    listenForSettingChanges("target-hz", [](int64_t) {
+    listenForSettingChanges<int64_t>("target-hz", [](int64_t) {
         requestHighRefresh();
     });
 
-    listenForSettingChanges("exact-mode", [](bool) {
+    listenForSettingChanges<bool>("exact-mode", [](bool) {
         requestHighRefresh();
     });
 }
@@ -533,4 +533,3 @@ class $modify(Force144HzMenuLayer, MenuLayer) {
         return true;
     }
 };
-
