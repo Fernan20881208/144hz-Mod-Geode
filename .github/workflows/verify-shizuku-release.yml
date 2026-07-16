@@ -70,7 +70,7 @@ jobs:
         shell: bash
         run: |
           cp release-verification/RELEASE_MANIFEST.json shizuku-app/RELEASE_MANIFEST.json
-          if git diff --quiet -- shizuku-app/RELEASE_MANIFEST.json; then
+          if test -z "$(git status --porcelain -- shizuku-app/RELEASE_MANIFEST.json)"; then
             echo "El manifiesto ya está actualizado."
             exit 0
           fi
