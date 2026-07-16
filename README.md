@@ -15,14 +15,17 @@ Está preparado específicamente para el modo comprobado en el dispositivo de pr
 - Frecuencia: `144.00002 Hz`.
 - Paquete vigilado: `com.geode.launcher`.
 
+La versión actual es **1.1.2**. Además de adaptar los comandos a las restricciones del UID `shell`, reinicia automáticamente cualquier `UserService` daemon perteneciente a una instalación anterior. Esto evita que una actualización del APK siga conectándose al motor 1.1.0 almacenado en memoria.
+
 La aplicación usa un `UserService` de Shizuku para:
 
 1. Detectar si Geode Launcher está en primer plano.
-2. Guardar los valores originales de frecuencia, Game Mode, `game_overlay` y modo preferido.
-3. Solicitar 144 Hz, desactivar downscaling y evitar un override fijo de FPS.
+2. Guardar los valores originales de frecuencia y modo de pantalla.
+3. Solicitar 144 Hz mediante ajustes permitidos para UID `shell` y el display interno `0`.
 4. Reaplicar la configuración periódicamente mientras Geode permanece activo.
 5. Restaurar todos los valores cuando Geode deja el primer plano o el usuario detiene el monitor.
 6. Generar un diagnóstico con modos expuestos, overrides por UID y políticas de DisplayManager.
+7. Cerrar automáticamente servicios privilegiados obsoletos después de actualizar el APK.
 
 ### Compilar la aplicación
 
