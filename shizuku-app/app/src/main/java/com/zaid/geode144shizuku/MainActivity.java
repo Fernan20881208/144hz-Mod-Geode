@@ -7,7 +7,9 @@ import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.graphics.Typeface;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.RemoteException;
 import android.provider.Settings;
 import android.view.Gravity;
@@ -25,11 +27,19 @@ import rikka.shizuku.Shizuku;
 
 public final class MainActivity extends Activity {
     private static final int SHIZUKU_PERMISSION_REQUEST = 144;
+    private static final String SERVICE_PREFS = "privileged_service";
+    private static final String SERVICE_VERSION_KEY = "installed_version_code";
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
     private TextView statusView;
     private IGeode144Service remoteService;
     private boolean serviceBound;
+    private boolean bindingInProgress;
+    private boolean restartInProgress;
+    private boolean rebindScheduled;
+    private boolean activityDestroyed;
 
     private final Shizuku.UserServiceArgs userServiceArgs =
             new Shizuku.UserServiceArgs(
@@ -42,9 +52,22 @@ public final class MainActivity extends Activity {
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
+            bindingInProgress = false;
             remoteService = IGeode144Service.Stub.asInterface(binder);
             serviceBound = true;
-            appendStatus("Servicio Shizuku conectado (UID privilegiado: " + safeShizukuUid() + ").");
+
+            if (needsUpgradeRestart()) {
+                appendStatus(
+                        "Se detectó un UserService de una instalación anterior. "
+                                + "Restaurando valores y reiniciándolo…");
+                rememberCurrentServiceVersion();
+                restartPrivilegedServiceInternal("actualización del APK");
+                return;
+            }
+
+            appendStatus(
+                    "Servicio Shizuku conectado (UID privilegiado: "
+                            + safeShizukuUid() + ").");
             runRemote("Iniciar monitor", () -> remoteService.startMonitor());
         }
 
@@ -52,7 +75,13 @@ public final class MainActivity extends Activity {
         public void onServiceDisconnected(ComponentName name) {
             remoteService = null;
             serviceBound = false;
-            appendStatus("El servicio privilegiado se desconectó.");
+            bindingInProgress = false;
+
+            if (restartInProgress) {
+                scheduleRebindAfterRestart();
+            } else {
+                appendStatus("El servicio privilegiado se desconectó.");
+            }
         }
     };
 
@@ -64,6 +93,9 @@ public final class MainActivity extends Activity {
     private final Shizuku.OnBinderDeadListener binderDeadListener = () -> {
         remoteService = null;
         serviceBound = false;
+        bindingInProgress = false;
+        restartInProgress = false;
+        rebindScheduled = false;
         appendStatus("Shizuku se detuvo. Reinícialo y vuelve a abrir esta app.");
     };
 
@@ -111,6 +143,8 @@ public final class MainActivity extends Activity {
         root.addView(explanation);
 
         root.addView(button("Conectar / conceder permiso", v -> ensurePermissionAndBind()));
+        root.addView(button("Reiniciar servicio privilegiado", v ->
+                restartPrivilegedServiceInternal("reinicio manual")));
         root.addView(button("Iniciar monitor automático", v -> withService(
                 () -> runRemote("Iniciar monitor", () -> remoteService.startMonitor()))));
         root.addView(button("Detener y restaurar valores", v -> withService(
@@ -185,16 +219,83 @@ public final class MainActivity extends Activity {
     }
 
     private void bindPrivilegedService() {
+        if (activityDestroyed || restartInProgress) return;
         if (serviceBound || remoteService != null) {
             appendStatus("El servicio ya está conectado.");
             return;
         }
+        if (bindingInProgress) {
+            return;
+        }
+
         try {
+            bindingInProgress = true;
             appendStatus("Conectando servicio con identidad shell/root…");
             Shizuku.bindUserService(userServiceArgs, serviceConnection);
         } catch (Throwable throwable) {
+            bindingInProgress = false;
             appendStatus("No se pudo conectar: " + throwable);
         }
+    }
+
+    private boolean needsUpgradeRestart() {
+        int installedVersion = getSharedPreferences(SERVICE_PREFS, MODE_PRIVATE)
+                .getInt(SERVICE_VERSION_KEY, -1);
+        return installedVersion != BuildConfig.VERSION_CODE;
+    }
+
+    private void rememberCurrentServiceVersion() {
+        getSharedPreferences(SERVICE_PREFS, MODE_PRIVATE)
+                .edit()
+                .putInt(SERVICE_VERSION_KEY, BuildConfig.VERSION_CODE)
+                .apply();
+    }
+
+    private void restartPrivilegedServiceInternal(String reason) {
+        if (restartInProgress) {
+            appendStatus("El servicio ya se está reiniciando.");
+            return;
+        }
+
+        restartInProgress = true;
+        rememberCurrentServiceVersion();
+        appendStatus("Reiniciando servicio privilegiado (" + reason + ")…");
+
+        IGeode144Service service = remoteService;
+        worker.execute(() -> {
+            if (service != null) {
+                try {
+                    service.stopAndRestore();
+                } catch (Throwable ignored) {
+                }
+                try {
+                    service.exit();
+                } catch (Throwable ignored) {
+                }
+            }
+
+            runOnUiThread(() -> {
+                try {
+                    Shizuku.unbindUserService(userServiceArgs, serviceConnection, true);
+                } catch (Throwable ignored) {
+                }
+                remoteService = null;
+                serviceBound = false;
+                bindingInProgress = false;
+                scheduleRebindAfterRestart();
+            });
+        });
+    }
+
+    private void scheduleRebindAfterRestart() {
+        if (activityDestroyed || rebindScheduled) return;
+        rebindScheduled = true;
+        mainHandler.postDelayed(() -> {
+            rebindScheduled = false;
+            restartInProgress = false;
+            appendStatus("Servicio anterior cerrado; conectando la versión actual…");
+            bindPrivilegedService();
+        }, 1500L);
     }
 
     private void withService(Runnable action) {
@@ -249,7 +350,7 @@ public final class MainActivity extends Activity {
 
     private void appendStatus(String text) {
         runOnUiThread(() -> {
-            if (statusView == null) return;
+            if (statusView == null || activityDestroyed) return;
             String current = statusView.getText().toString();
             statusView.setText(current.isEmpty() ? text : current + "\n\n" + text);
         });
@@ -261,13 +362,15 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        activityDestroyed = true;
+        mainHandler.removeCallbacksAndMessages(null);
+
         Shizuku.removeBinderReceivedListener(binderReceivedListener);
         Shizuku.removeBinderDeadListener(binderDeadListener);
         Shizuku.removeRequestPermissionResultListener(permissionResultListener);
 
-        if (serviceBound) {
+        if (serviceBound || bindingInProgress) {
             try {
-                // Mantiene el UserService daemon, pero elimina el callback de esta Activity.
                 Shizuku.unbindUserService(userServiceArgs, serviceConnection, false);
             } catch (Throwable ignored) {
             }
