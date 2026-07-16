@@ -1,0 +1,51 @@
+{
+  "assets": [
+    {
+      "apiUrl": "https://api.github.com/repos/Fernan20881208/144hz-Mod-Geode/releases/assets/479423911",
+      "contentType": "application/vnd.android.package-archive",
+      "createdAt": "2026-07-16T17:09:45Z",
+      "digest": "sha256:821f3d4c45ea8c899d9326c63864feca6cc90c8ec0f00aad94795e03a2794d49",
+      "downloadCount": 0,
+      "id": "RA_kwDOTZke4s4ck22n",
+      "label": "",
+      "name": "Geode144-Shizuku-v1.1.2-debug.apk",
+      "size": 1709205,
+      "state": "uploaded",
+      "updatedAt": "2026-07-16T17:09:46Z",
+      "url": "https://github.com/Fernan20881208/144hz-Mod-Geode/releases/download/v1.1.2/Geode144-Shizuku-v1.1.2-debug.apk"
+    },
+    {
+      "apiUrl": "https://api.github.com/repos/Fernan20881208/144hz-Mod-Geode/releases/assets/479423909",
+      "contentType": "application/zip",
+      "createdAt": "2026-07-16T17:09:45Z",
+      "digest": "sha256:e02fc38f85663eaacf09d9c6dec6d68fabe73ef13fd5a0d426649081924896f0",
+      "downloadCount": 0,
+      "id": "RA_kwDOTZke4s4ck22l",
+      "label": "",
+      "name": "Geode144-Shizuku-v1.1.2.zip",
+      "size": 1698922,
+      "state": "uploaded",
+      "updatedAt": "2026-07-16T17:09:46Z",
+      "url": "https://github.com/Fernan20881208/144hz-Mod-Geode/releases/download/v1.1.2/Geode144-Shizuku-v1.1.2.zip"
+    },
+    {
+      "apiUrl": "https://api.github.com/repos/Fernan20881208/144hz-Mod-Geode/releases/assets/479423910",
+      "contentType": "text/plain; charset=utf-8",
+      "createdAt": "2026-07-16T17:09:45Z",
+      "digest": "sha256:d0226d680039b2cc16ed37257abd6ed93d1f2a0fedf42b60d0a9ae95bd439432",
+      "downloadCount": 0,
+      "id": "RA_kwDOTZke4s4ck22m",
+      "label": "",
+      "name": "SHA256SUMS.txt",
+      "size": 100,
+      "state": "uploaded",
+      "updatedAt": "2026-07-16T17:09:46Z",
+      "url": "https://github.com/Fernan20881208/144hz-Mod-Geode/releases/download/v1.1.2/SHA256SUMS.txt"
+    }
+  ],
+  "isDraft": false,
+  "isPrerelease": false,
+  "name": "Geode 144 Shizuku v1.1.2",
+  "tagName": "v1.1.2",
+  "url": "https://github.com/Fernan20881208/144hz-Mod-Geode/releases/tag/v1.1.2"
+}
