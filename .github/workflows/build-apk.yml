@@ -48,7 +48,19 @@ jobs:
 
       - name: Compilar APK debug
         working-directory: shizuku-app
-        run: gradle --no-daemon --stacktrace :app:assembleDebug
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee build.log
+
+      - name: Subir registro de compilación
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Geode144-Shizuku-build-log
+          path: shizuku-app/build.log
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Mostrar APK y hash
         run: |
