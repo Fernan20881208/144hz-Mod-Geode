@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Geode 144 Shizuku</string>
+    <string name="title">Geode 144 Shizuku</string>
+    <string name="explanation">Mantiene 144 Hz solo mientras Geode Launcher está en primer plano. Usa un UserService de Shizuku con identidad shell/root, guarda la configuración original y la restaura al salir.</string>
+</resources>
