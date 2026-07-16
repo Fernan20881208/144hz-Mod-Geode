@@ -1,0 +1,184 @@
+name: Release Geode144 Shizuku
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "shizuku-app/**"
+      - ".github/workflows/release-shizuku.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "shizuku-app/**"
+      - ".github/workflows/release-shizuku.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: geode144-shizuku-release
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Corregir etiqueta de versión del diagnóstico
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("shizuku-app/app/src/main/java/com/zaid/geode144shizuku/Geode144UserService.java")
+          text = path.read_text(encoding="utf-8")
+          old = '''report.append("Geode 144 Shizuku v1.1.1\\n")
+                          .append("UID del UserService: ")'''
+          new = '''report.append("Geode 144 Shizuku v")
+                          .append(BuildConfig.VERSION_NAME)
+                          .append('\\n')
+                          .append("UID del UserService: ")'''
+          if old in text:
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          elif "append(BuildConfig.VERSION_NAME)" not in text:
+              raise SystemExit("No se encontró la etiqueta de versión esperada")
+          PY
+
+      - name: Guardar corrección en main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "La etiqueta ya estaba corregida."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add shizuku-app/app/src/main/java/com/zaid/geode144shizuku/Geode144UserService.java
+          git commit -m "Fix Shizuku diagnostic version label"
+          git push origin HEAD:main
+
+      - name: Preparar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Preparar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar plataforma Android
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Preparar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Leer versión
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(sed -n "s/.*versionName '\([^']*\)'.*/\1/p" shizuku-app/app/build.gradle | head -n 1)
+          test -n "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Compilar APK debug
+        working-directory: shizuku-app
+        shell: bash
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Preparar archivos de la Release
+        id: package
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p release
+          APK="release/Geode144-Shizuku-v${VERSION}-debug.apk"
+          ZIP="release/Geode144-Shizuku-v${VERSION}.zip"
+          cp shizuku-app/app/build/outputs/apk/debug/app-debug.apk "$APK"
+          sha256sum "$APK" | sed 's#release/##' > release/SHA256SUMS.txt
+          cp shizuku-app/README.md release/README-Shizuku.md
+          (cd release && zip -9 "Geode144-Shizuku-v${VERSION}.zip" \
+            "Geode144-Shizuku-v${VERSION}-debug.apk" \
+            SHA256SUMS.txt README-Shizuku.md)
+          echo "apk=$APK" >> "$GITHUB_OUTPUT"
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+
+      - name: Subir artefactos de validación
+        uses: actions/upload-artifact@v4
+        with:
+          name: Geode144-Shizuku-v${{ steps.version.outputs.version }}
+          path: |
+            ${{ steps.package.outputs.apk }}
+            ${{ steps.package.outputs.zip }}
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Crear notas de Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cat > release/RELEASE_NOTES.md <<EOF
+          ## Geode 144 Shizuku v${VERSION}
+
+          Aplicación complementaria que usa un UserService de Shizuku para administrar las preferencias de frecuencia mientras `com.geode.launcher` está en primer plano y restaurarlas al salir.
+
+          ### Incluye
+
+          - Integración Shizuku 13.1.5 con UID shell o root.
+          - Snapshot y restauración de `peak_refresh_rate`, `min_refresh_rate` y preferencias del display interno 0.
+          - Reinicio automático de daemons obsoletos después de actualizar el APK.
+          - Bloqueo de conexiones duplicadas.
+          - Diagnóstico de modos físicos, render rate, overrides por UID y políticas OEM.
+
+          ### Resultado observado en la ROM probada
+
+          El dispositivo expone el modo físico 1080×2392 a 144.00002 Hz y lo conserva como `userPreferredModeId=2`. Sin embargo, DisplayManager mantiene el modo activo y el render en 120.00001 Hz porque la ROM reporta `ignore_app_preferred_refresh_rate_request=true`. Shizuku iniciado por ADB usa UID 2000 y no puede desactivar una política privada del fabricante.
+
+          ### Instalación
+
+          Instala el APK sobre la versión anterior. Abre la aplicación con Shizuku activo. Si quedó un servicio antiguo, usa **Reiniciar servicio privilegiado**.
+
+          Se adjuntan el APK, un ZIP de distribución y `SHA256SUMS.txt`.
+          EOF
+
+      - name: Publicar tag y Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          APK: ${{ steps.package.outputs.apk }}
+          ZIP: ${{ steps.package.outputs.zip }}
+        run: |
+          TARGET=$(git rev-parse HEAD)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" "$ZIP" release/SHA256SUMS.txt --clobber
+            gh release edit "$TAG" \
+              --title "Geode 144 Shizuku v${VERSION}" \
+              --notes-file release/RELEASE_NOTES.md
+          else
+            gh release create "$TAG" "$APK" "$ZIP" release/SHA256SUMS.txt \
+              --target "$TARGET" \
+              --title "Geode 144 Shizuku v${VERSION}" \
+              --notes-file release/RELEASE_NOTES.md
+          fi
