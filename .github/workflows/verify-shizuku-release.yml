@@ -1,0 +1,81 @@
+name: Verify Geode144 Shizuku Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/verify-shizuku-release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verificar Release y archivos adjuntos
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v1.1.2
+        run: |
+          mkdir -p release-verification
+          found=false
+          for attempt in $(seq 1 18); do
+            if gh release view "$TAG" \
+              --json tagName,name,url,isDraft,isPrerelease,assets \
+              > release-verification/RELEASE_MANIFEST.json; then
+              found=true
+              break
+            fi
+            echo "Release aún no visible; intento ${attempt}/18"
+            sleep 10
+          done
+          test "$found" = true
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("release-verification/RELEASE_MANIFEST.json")
+          data = json.loads(path.read_text(encoding="utf-8"))
+          expected = {
+              "Geode144-Shizuku-v1.1.2-debug.apk",
+              "Geode144-Shizuku-v1.1.2.zip",
+              "SHA256SUMS.txt",
+          }
+          actual = {asset["name"] for asset in data.get("assets", [])}
+          missing = expected - actual
+          if missing:
+              raise SystemExit(f"Faltan adjuntos: {sorted(missing)}; encontrados: {sorted(actual)}")
+          if data.get("tagName") != "v1.1.2":
+              raise SystemExit(f"Tag inesperado: {data.get('tagName')}")
+          if data.get("isDraft"):
+              raise SystemExit("La Release sigue como borrador")
+          path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+          print(f"Release verificada: {data['url']}")
+          print("Adjuntos:", ", ".join(sorted(actual)))
+          PY
+
+      - name: Guardar manifiesto verificado en el repositorio
+        shell: bash
+        run: |
+          cp release-verification/RELEASE_MANIFEST.json shizuku-app/RELEASE_MANIFEST.json
+          if git diff --quiet -- shizuku-app/RELEASE_MANIFEST.json; then
+            echo "El manifiesto ya está actualizado."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add shizuku-app/RELEASE_MANIFEST.json
+          git commit -m "Record verified v1.1.2 release assets"
+          git push origin HEAD:main
