@@ -94,7 +94,9 @@ public final class Geode144UserService extends IGeode144Service.Stub {
     public String diagnose() {
         boolean root = isRootService();
         StringBuilder report = new StringBuilder();
-        report.append("Geode 144 Shizuku v1.1.1\n")
+        report.append("Geode 144 Shizuku v")
+                .append(BuildConfig.VERSION_NAME)
+                .append('\n')
                 .append("UID del UserService: ")
                 .append(android.os.Process.myUid())
                 .append(root ? " (root)\n" : " (shell)\n")
