@@ -20,6 +20,19 @@ Aplicación complementaria para Android que intenta mantener **144 Hz** únicame
 
 El snapshot se guarda temporalmente en `/data/local/tmp/geode144-shizuku.state`, de forma que el servicio pueda recuperarlo después de un cierre inesperado o una actualización desde la versión 1.1.0.
 
+## Actualización 1.1.2
+
+Los `UserService` configurados como daemon pueden seguir ejecutándose después de instalar un APK nuevo. Esto hacía que la interfaz 1.1.1 se conectara al motor antiguo 1.1.0 y siguiera mostrando comandos eliminados.
+
+La versión 1.1.2:
+
+- detecta el primer inicio después de cada actualización;
+- restaura los valores administrados por el daemon anterior;
+- cierra y elimina automáticamente el `UserService` obsoleto;
+- enlaza una instancia nueva antes de iniciar el monitor;
+- evita solicitudes de conexión duplicadas;
+- añade el botón **Reiniciar servicio privilegiado** para recuperación manual.
+
 ## Diferencia entre Shizuku ADB y root
 
 Con Shizuku iniciado mediante depuración inalámbrica o ADB, el `UserService` usa UID `2000` (`shell`). En algunas ROM, incluida la probada, ese UID puede escribir los ajustes de frecuencia, pero Android bloquea:
@@ -29,7 +42,7 @@ Con Shizuku iniciado mediante depuración inalámbrica o ADB, el `UserService` u
 - Game Mode de rendimiento para aplicaciones que no declaran soporte;
 - determinadas variantes OEM de `cmd game set`.
 
-La versión 1.1.1 evita esos comandos en modo shell. Usa el display interno `0` y escribe directamente las claves globales empleadas por DisplayManager. Si Shizuku se inicia con root, la app también puede intentar `game_overlay`.
+La app evita esos comandos en modo shell. Usa el display interno `0` y escribe directamente las claves globales empleadas por DisplayManager. Si Shizuku se inicia con root, también puede intentar `game_overlay`.
 
 ## Requisitos
 
@@ -54,13 +67,15 @@ gradle :app:assembleDebug
 1. Instala y abre Shizuku.
 2. Inicia el servicio de Shizuku.
 3. Instala o actualiza el APK y concede su permiso en Shizuku.
-4. La app conecta el servicio y activa el monitor automáticamente.
-5. Abre Geode y después usa **Generar diagnóstico** para comprobar:
+4. En el primer inicio tras actualizar, espera a que aparezca **Servicio anterior cerrado; conectando la versión actual…**.
+5. La app enlazará una única instancia y activará el monitor automáticamente.
+6. Si todavía aparece salida de una versión anterior, pulsa **Reiniciar servicio privilegiado**.
+7. Abre Geode y después usa **Generar diagnóstico** para comprobar:
    - `peak_refresh_rate` y `min_refresh_rate`;
    - las tres claves globales del modo preferido;
    - el modo preferido del display `0`;
    - cualquier `mFrameRateOverrides` aplicado al UID de Geode.
-6. Usa **Detener y restaurar valores** antes de desinstalar la aplicación.
+8. Usa **Detener y restaurar valores** antes de desinstalar la aplicación.
 
 ## Límites
 
