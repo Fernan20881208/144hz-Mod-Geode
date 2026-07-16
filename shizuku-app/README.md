@@ -8,16 +8,28 @@ Aplicación complementaria para Android que intenta mantener **144 Hz** únicame
 2. Detecta si Geode Launcher es la actividad reanudada.
 3. Antes de modificar nada guarda:
    - `peak_refresh_rate` y `min_refresh_rate`.
-   - configuración `game_overlay` de Geode.
-   - Game Mode actual, cuando Android lo expone.
-   - modo de pantalla preferido por el usuario.
-4. Mientras Geode está delante, reaplica:
+   - las claves globales del modo de pantalla preferido.
+   - el modo preferido específico del display interno `0`.
+   - `game_overlay` únicamente cuando Shizuku se inició con root.
+4. Mientras Geode está delante, reaplica cada 10 segundos:
    - `1080 × 2392 @ 144.00002 Hz`.
    - frecuencia mínima y máxima de 144 Hz.
-   - Game Mode de rendimiento sin límite fijo de FPS ni downscaling.
+   - las claves globales `user_preferred_refresh_rate`, `user_preferred_resolution_width` y `user_preferred_resolution_height`.
+   - el modo preferido del display interno `0`.
 5. Cuando Geode deja el primer plano, restaura los valores originales y borra el snapshot.
 
-El snapshot se guarda temporalmente en `/data/local/tmp/geode144-shizuku.state`, de forma que el servicio pueda recuperarlo después de un cierre inesperado.
+El snapshot se guarda temporalmente en `/data/local/tmp/geode144-shizuku.state`, de forma que el servicio pueda recuperarlo después de un cierre inesperado o una actualización desde la versión 1.1.0.
+
+## Diferencia entre Shizuku ADB y root
+
+Con Shizuku iniciado mediante depuración inalámbrica o ADB, el `UserService` usa UID `2000` (`shell`). En algunas ROM, incluida la probada, ese UID puede escribir los ajustes de frecuencia, pero Android bloquea:
+
+- el comando global `cmd display set-user-preferred-display-mode` sin un ID de display;
+- las escrituras arbitrarias de `device_config game_overlay`;
+- Game Mode de rendimiento para aplicaciones que no declaran soporte;
+- determinadas variantes OEM de `cmd game set`.
+
+La versión 1.1.1 evita esos comandos en modo shell. Usa el display interno `0` y escribe directamente las claves globales empleadas por DisplayManager. Si Shizuku se inicia con root, la app también puede intentar `game_overlay`.
 
 ## Requisitos
 
@@ -41,11 +53,15 @@ gradle :app:assembleDebug
 
 1. Instala y abre Shizuku.
 2. Inicia el servicio de Shizuku.
-3. Instala el APK generado y concede su permiso en Shizuku.
+3. Instala o actualiza el APK y concede su permiso en Shizuku.
 4. La app conecta el servicio y activa el monitor automáticamente.
-5. Usa **Generar diagnóstico** para revisar el modo activo y posibles overrides por UID.
+5. Abre Geode y después usa **Generar diagnóstico** para comprobar:
+   - `peak_refresh_rate` y `min_refresh_rate`;
+   - las tres claves globales del modo preferido;
+   - el modo preferido del display `0`;
+   - cualquier `mFrameRateOverrides` aplicado al UID de Geode.
 6. Usa **Detener y restaurar valores** antes de desinstalar la aplicación.
 
 ## Límites
 
-Shizuku con identidad `shell` depende de los permisos que el fabricante conserve para ADB. Algunas ROM pueden bloquear comandos concretos o volver a imponer un límite por UID. La pantalla puede funcionar físicamente a 144 Hz y, aun así, el renderizado de una aplicación quedar limitado por GameManager, SurfaceFlinger o una política OEM.
+Shizuku con identidad `shell` depende de los permisos que el fabricante conserve para ADB. La app puede solicitar y fijar el modo de pantalla, pero no puede eliminar una política privada del fabricante que limite por UID dentro de SurfaceFlinger o GameManager. El diagnóstico permite distinguir entre frecuencia física de la pantalla y frecuencia de renderizado asignada a Geode.
