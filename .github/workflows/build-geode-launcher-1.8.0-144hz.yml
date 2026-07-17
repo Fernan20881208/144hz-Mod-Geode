@@ -78,6 +78,16 @@ jobs:
         run: |
           set -euxo pipefail
           python3 scripts/patch-geode-launcher-144hz.py
+
+          # CMake 3.22 maps Android IPO/LTO to the removed gold linker.
+          # NDK 29 ships lld, not LLVMgold.so, so disable target IPO for
+          # this debug build. This removes both -flto=thin and -fuse-ld=gold.
+          sed -i \
+            's/INTERPROCEDURAL_OPTIMIZATION ON/INTERPROCEDURAL_OPTIMIZATION OFF/' \
+            launcher/app/src/main/cpp/CMakeLists.txt
+          grep -q 'INTERPROCEDURAL_OPTIMIZATION OFF' \
+            launcher/app/src/main/cpp/CMakeLists.txt
+
           git -C launcher diff --check
           git -C launcher diff --stat
           git -C launcher diff > launcher-144hz.patch
