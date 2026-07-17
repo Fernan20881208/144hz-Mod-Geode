@@ -4,9 +4,10 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - geode-launcher-1.8.0-144hz
+      - main
     paths:
       - ".github/workflows/build-geode-launcher-1.8.0-144hz.yml"
+      - "scripts/patch-geode-launcher-144hz.py"
 
 permissions:
   contents: read
@@ -21,20 +22,47 @@ jobs:
     timeout-minutes: 45
 
     env:
-      LAUNCHER_COMMIT: "38bc97b"
+      LAUNCHER_COMMIT: "38bc97b7b6551acb1295dd241231ca22e2cd8995"
       TARGET_REFRESH_RATE: "144.0"
+      LAUNCHER_DIR: "launcher"
 
     steps:
-      - name: Preparar Java 21
-        uses: actions/setup-java@v4
+      - name: Checkout patch repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Checkout Geode Android Launcher 1.8.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: geode-sdk/android-launcher
+          ref: ${{ env.LAUNCHER_COMMIT }}
+          path: launcher
+          fetch-depth: 1
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Verify launcher source revision
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ACTUAL_COMMIT="$(git -C launcher rev-parse HEAD)"
+          test "$ACTUAL_COMMIT" = "$LAUNCHER_COMMIT"
+          git -C launcher status --short
+
+      - name: Setup Java 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
           distribution: temurin
           java-version: "21"
+          cache: gradle
+          cache-dependency-path: |
+            launcher/*.gradle*
+            launcher/gradle/wrapper/gradle-wrapper.properties
+            launcher/app/*.gradle*
 
-      - name: Preparar Android SDK
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Instalar herramientas Android
+      - name: Install exact Android toolchain
         shell: bash
         run: |
           set -euxo pipefail
@@ -45,345 +73,67 @@ jobs:
             "ndk;29.0.14206865" \
             "cmake;3.22.1"
 
-      - name: Clonar Geode Android Launcher 1.8.0
+      - name: Apply RMX5106 144 Hz patch
         shell: bash
         run: |
           set -euxo pipefail
-          git init launcher
-          git -C launcher remote add origin \
-            https://github.com/geode-sdk/android-launcher.git
-          git -C launcher fetch --depth 1 origin "$LAUNCHER_COMMIT"
-          git -C launcher checkout --detach FETCH_HEAD
-          git -C launcher submodule update --init --recursive --depth 1
-          test "$(git -C launcher rev-parse --short HEAD)" = "$LAUNCHER_COMMIT"
+          python3 scripts/patch-geode-launcher-144hz.py
+          git -C launcher diff --check
+          git -C launcher diff --stat
+          git -C launcher diff > launcher-144hz.patch
+          test -s launcher-144hz.patch
 
-      - name: Aplicar parche RMX5106 144 Hz
-        working-directory: launcher
-        shell: bash
-        env:
-          TARGET_REFRESH_RATE: ${{ env.TARGET_REFRESH_RATE }}
-        run: |
-          set -euxo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import os
-          import re
-
-          root = Path(".")
-          target_hz = float(os.environ.get("TARGET_REFRESH_RATE", "144.0"))
-
-          def read(path: Path) -> str:
-              return path.read_text(encoding="utf-8")
-
-          def write(path: Path, text: str) -> None:
-              path.parent.mkdir(parents=True, exist_ok=True)
-              path.write_text(text, encoding="utf-8")
-
-          def lines(*items: str) -> str:
-              return "\n".join(items)
-
-          def replace_once(text: str, old: str, new: str, name: str) -> str:
-              if old not in text:
-                  raise RuntimeError(f"No se encontró el bloque: {name}")
-              return text.replace(old, new, 1)
-
-          # 1. Desactivar las intervenciones de Game Mode que pueden aplicar
-          #    downscaling o un FPS override por UID.
-          manifest = root / "app/src/main/AndroidManifest.xml"
-          manifest_text = read(manifest)
-          if 'android:name="android.game_mode_config"' not in manifest_text:
-              application = re.search(r"(<application\b[^>]*>)", manifest_text, re.DOTALL)
-              if not application:
-                  raise RuntimeError("No se encontró <application> en AndroidManifest.xml")
-              metadata = lines(
-                  "",
-                  "        <meta-data",
-                  '            android:name="android.game_mode_config"',
-                  '            android:resource="@xml/game_mode_config" />',
-              )
-              manifest_text = (
-                  manifest_text[:application.end()]
-                  + metadata
-                  + manifest_text[application.end():]
-              )
-              write(manifest, manifest_text)
-
-          write(
-              root / "app/src/main/res/xml/game_mode_config.xml",
-              lines(
-                  '<?xml version="1.0" encoding="UTF-8"?>',
-                  '<game-mode-config',
-                  '    xmlns:android="http://schemas.android.com/apk/res/android" />',
-                  "",
-              ),
-          )
-          write(
-              root / "app/src/main/res/xml-v31/game_mode_config.xml",
-              lines(
-                  '<?xml version="1.0" encoding="UTF-8"?>',
-                  '<game-mode-config',
-                  '    xmlns:android="http://schemas.android.com/apk/res/android"',
-                  '    android:supportsPerformanceGameMode="true"',
-                  '    android:supportsBatteryGameMode="false" />',
-                  "",
-              ),
-          )
-          write(
-              root / "app/src/main/res/xml-v33/game_mode_config.xml",
-              lines(
-                  '<?xml version="1.0" encoding="UTF-8"?>',
-                  '<game-mode-config',
-                  '    xmlns:android="http://schemas.android.com/apk/res/android"',
-                  '    android:supportsPerformanceGameMode="true"',
-                  '    android:supportsBatteryGameMode="false"',
-                  '    android:allowGameDownscaling="false"',
-                  '    android:allowGameFpsOverride="false" />',
-                  "",
-              ),
-          )
-
-          # 2. Solicitar el modo físico de mayor frecuencia y un render rate
-          #    idéntico. En el RMX5106 el máximo expuesto es 144.00002 Hz.
-          surface_file = root / (
-              "app/src/main/java/org/cocos2dx/lib/"
-              "Cocos2dxGLSurfaceView.kt"
-          )
-          surface_text = read(surface_file)
-          surface_pattern = re.compile(
-              r"    @RequiresApi\(Build\.VERSION_CODES\.R\)\n"
-              r"    fun updateRefreshRate\(\) \{.*?\n"
-              r"    \}\n\n"
-              r"    override fun onPause",
-              re.DOTALL,
-          )
-          surface_replacement = lines(
-              "    @RequiresApi(Build.VERSION_CODES.R)",
-              "    fun updateRefreshRate() {",
-              "        val modes = display.supportedModes?.toList().orEmpty()",
-              "        val chosenDisplay = modes.minByOrNull {",
-              f"            abs(it.refreshRate - {target_hz}f)",
-              "        }?.takeIf {",
-              f"            abs(it.refreshRate - {target_hz}f) < 1.0f",
-              "        } ?: modes.maxByOrNull { it.refreshRate }",
-              "",
-              "        if (chosenDisplay == null) {",
-              '            println("Force144Hz: no se encontró un modo de pantalla")',
-              "            return",
-              "        }",
-              "",
-              "        val chosenRefreshRate = chosenDisplay.refreshRate",
-              "        println(",
-              '            "Force144Hz: modeId=${chosenDisplay.modeId} " +',
-              '                "@ $chosenRefreshRate Hz"',
-              "        )",
-              "",
-              "        val surface = holder.surface",
-              "        if (surface.isValid) {",
-              "            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {",
-              "                surface.setFrameRate(",
-              "                    chosenRefreshRate,",
-              "                    Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,",
-              "                    Surface.CHANGE_FRAME_RATE_ALWAYS,",
-              "                )",
-              "            } else {",
-              "                surface.setFrameRate(",
-              "                    chosenRefreshRate,",
-              "                    Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,",
-              "                )",
-              "            }",
-              "        }",
-              "",
-              "        if (isAttachedToWindow) {",
-              "            val activity = context as Activity",
-              "            val attributes = activity.window.attributes",
-              "            attributes.preferredDisplayModeId = chosenDisplay.modeId",
-              "            attributes.preferredRefreshRate = chosenRefreshRate",
-              "            activity.window.attributes = attributes",
-              "        }",
-              "    }",
-              "",
-              "    override fun onPause",
-          )
-          surface_text, count = surface_pattern.subn(
-              surface_replacement,
-              surface_text,
-              count=1,
-          )
-          if count != 1:
-              raise RuntimeError("No se pudo reemplazar updateRefreshRate()")
-          write(surface_file, surface_text)
-
-          # 3. Fijar el modeId desde la Activity y reaplicar después de que
-          #    ColorOS intente restaurar su política por UID.
-          activity_file = root / (
-              "app/src/main/java/com/geode/launcher/"
-              "GeometryDashActivity.kt"
-          )
-          activity_text = read(activity_file)
-          activity_text = replace_once(
-              activity_text,
-              "                window.attributes.preferredRefreshRate = chosenRefreshRate",
-              lines(
-                  "                val attributes = window.attributes",
-                  "                attributes.preferredDisplayModeId = chosenDisplay.modeId",
-                  "                attributes.preferredRefreshRate = chosenRefreshRate",
-                  "                window.attributes = attributes",
-              ),
-              "preferredDisplayModeId inicial",
-          )
-
-          old_focus = lines(
-              "    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {",
-              "        super.onWindowFocusChanged(hasWindowFocus)",
-              "        mHasWindowFocus = hasWindowFocus",
-              "        if (hasWindowFocus && !mIsOnPause) {",
-              "            resumeGame()",
-              "        }",
-              "",
-              "        hideSystemUi()",
-              "    }",
-          )
-          new_focus = lines(
-              "    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {",
-              "        super.onWindowFocusChanged(hasWindowFocus)",
-              "        mHasWindowFocus = hasWindowFocus",
-              "        if (hasWindowFocus && !mIsOnPause) {",
-              "            resumeGame()",
-              "        }",
-              "",
-              "        if (hasWindowFocus && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {",
-              "            mGLSurfaceView?.post { mGLSurfaceView?.updateRefreshRate() }",
-              "            mGLSurfaceView?.postDelayed(",
-              "                { mGLSurfaceView?.updateRefreshRate() }, 250L",
-              "            )",
-              "            mGLSurfaceView?.postDelayed(",
-              "                { mGLSurfaceView?.updateRefreshRate() }, 750L",
-              "            )",
-              "            mGLSurfaceView?.postDelayed(",
-              "                { mGLSurfaceView?.updateRefreshRate() }, 1500L",
-              "            )",
-              "        }",
-              "",
-              "        hideSystemUi()",
-              "    }",
-          )
-          activity_text = replace_once(
-              activity_text,
-              old_focus,
-              new_focus,
-              "onWindowFocusChanged()",
-          )
-
-          old_resume = lines(
-              "    override fun onResume() {",
-              "        super.onResume()",
-              "        mIsOnPause = false",
-              "        BaseRobTopActivity.isPaused = false",
-              "        if (mHasWindowFocus && !this.mIsRunning) {",
-              "            resumeGame()",
-              "        }",
-              "    }",
-          )
-          new_resume = lines(
-              "    override fun onResume() {",
-              "        super.onResume()",
-              "        mIsOnPause = false",
-              "        BaseRobTopActivity.isPaused = false",
-              "        if (mHasWindowFocus && !this.mIsRunning) {",
-              "            resumeGame()",
-              "        }",
-              "",
-              "        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {",
-              "            mGLSurfaceView?.post { mGLSurfaceView?.updateRefreshRate() }",
-              "            mGLSurfaceView?.postDelayed(",
-              "                { mGLSurfaceView?.updateRefreshRate() }, 500L",
-              "            )",
-              "            mGLSurfaceView?.postDelayed(",
-              "                { mGLSurfaceView?.updateRefreshRate() }, 1500L",
-              "            )",
-              "            mGLSurfaceView?.postDelayed(",
-              "                { mGLSurfaceView?.updateRefreshRate() }, 3000L",
-              "            )",
-              "        }",
-              "    }",
-          )
-          activity_text = replace_once(
-              activity_text,
-              old_resume,
-              new_resume,
-              "onResume()",
-          )
-          write(activity_file, activity_text)
-
-          # 4. Marcar claramente el APK personalizado.
-          gradle_file = root / "app/build.gradle.kts"
-          gradle_text = read(gradle_file)
-          gradle_text, version_name_count = re.subn(
-              r'versionName\s*=\s*"[^"]+"',
-              'versionName = "1.8.0-144hz-rmx5106"',
-              gradle_text,
-              count=1,
-          )
-          gradle_text, version_code_count = re.subn(
-              r"versionCode\s*=\s*\d+",
-              "versionCode = 290144",
-              gradle_text,
-              count=1,
-          )
-          if version_name_count != 1 or version_code_count != 1:
-              raise RuntimeError("No se pudo modificar versionName/versionCode")
-          write(gradle_file, gradle_text)
-
-          print("Parche 144 Hz aplicado correctamente.")
-          PY
-
-      - name: Verificar el parche
-        working-directory: launcher
-        shell: bash
-        run: |
-          set -euxo pipefail
-          grep -R "allowGameFpsOverride=\"false\"" \
-            app/src/main/res/xml-v33/game_mode_config.xml
-          grep -R "preferredDisplayModeId" \
-            app/src/main/java/com/geode/launcher/GeometryDashActivity.kt
-          grep -R "CHANGE_FRAME_RATE_ALWAYS" \
-            app/src/main/java/org/cocos2dx/lib/Cocos2dxGLSurfaceView.kt
-          grep -R 'versionName = "1.8.0-144hz-rmx5106"' \
-            app/build.gradle.kts
-
-      - name: Configurar Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Compilar APK debug
+      - name: Build debug APKs
         working-directory: launcher
         shell: bash
         run: |
           set -o pipefail
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace assembleDebug 2>&1 | tee build-144hz.log
+          ./gradlew --no-daemon --stacktrace app:assembleDebug \
+            2>&1 | tee build-144hz.log
 
-      - name: Preparar artefactos
+      - name: Prepare APK artifacts
+        if: success()
         shell: bash
         run: |
           set -euxo pipefail
           mkdir -p release
+
           find launcher/app/build/outputs/apk/debug \
             -type f -name '*.apk' -print0 \
             | while IFS= read -r -d '' apk; do
                 cp "$apk" "release/$(basename "$apk")"
               done
+
           cp launcher/build-144hz.log release/build-144hz.log
+          cp launcher-144hz.patch release/launcher-144hz.patch
+
+          APK_COUNT="$(find release -maxdepth 1 -type f -name '*.apk' | wc -l)"
+          test "$APK_COUNT" -gt 0
+
           (cd release && sha256sum *.apk > SHA256SUMS.txt)
-          test -s release/SHA256SUMS.txt
           cat release/SHA256SUMS.txt
 
-      - name: Subir APKs
-        uses: actions/upload-artifact@v4
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: Geode-Launcher-1.8.0-144Hz-failure-log
+          path: |
+            launcher/build-144hz.log
+            launcher-144hz.patch
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload patched APKs
+        if: success()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: Geode-Launcher-1.8.0-144Hz-RMX5106
           path: |
             release/*.apk
             release/SHA256SUMS.txt
             release/build-144hz.log
+            release/launcher-144hz.patch
           if-no-files-found: error
           retention-days: 30
